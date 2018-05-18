@@ -15,7 +15,8 @@ import salem
 import oggm.cfg as cfg
 from oggm import tasks, utils, workflow
 from oggm.workflow import execute_entity_task
-from oggm.sandbox import g2ti
+import g2ti
+from g2ti import tasks as g2tasks
 
 # For timing the run
 import time
@@ -30,26 +31,27 @@ cfg.initialize()
 cfg.PARAMS['continue_on_error'] = False
 
 # test directory
-idir = '/home/mowglie/disk/G2TI/data/geometry/'
-bdir = '/home/mowglie/disk/G2TI/vas_run'
-cfg.PATHS['working_dir'] = bdir
-utils.mkdir(bdir, reset=True)
+idir = g2ti.geometry_dir
+cfg.PATHS['working_dir'] = '/home/mowglie/disk/G2TI/vas_run_test'
+utils.mkdir(cfg.PATHS['working_dir'], reset=True)
 
-df = pd.read_csv('/home/mowglie/Documents/g2ti/GTD/INDEX_thickness_data.csv')
+df = pd.read_csv(g2ti.index_file)
 df = df.loc[df.n_pts > 0]
+
+# Tests only
+df = df.iloc[0:3]
 
 rgi_ids = df.RGIId.values
 flist = [idir + r[:8] + '/' + r for r in rgi_ids]
 
 cfg.set_intersects_db(utils.get_rgi_intersects_region_file(version=version,
                                                            rgi_ids=rgi_ids))
-
-gdirs = g2ti.parallel_define(flist)
+gdirs = g2tasks.parallel_define(flist)
 
 # Preprocessing tasks
 task_list = [
-    g2ti.g2ti_masks,
-    g2ti.optimize_distribute_thickness_single_glacier,
+    g2tasks.g2ti_masks,
+    g2tasks.optimize_distribute_thickness_single_glacier,
 ]
 for task in task_list:
     execute_entity_task(task, gdirs)
@@ -57,6 +59,7 @@ for task in task_list:
 # Compile output
 log.info('Compiling output')
 utils.glacier_characteristics(gdirs)
+g2tasks.merge_point_data(gdirs)
 
 # Log
 m, s = divmod(time.time() - start, 60)

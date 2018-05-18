@@ -22,6 +22,7 @@ import oggm.cfg as cfg
 from oggm import utils, workflow
 from oggm import entity_task
 from oggm.core.gis import gaussian_blur
+import g2ti
 
 # Module logger
 log = logging.getLogger(__name__)
@@ -197,7 +198,7 @@ def g2ti_masks(gdir):
 
 def get_ref_gtd_data(gdir):
 
-    dd = '/home/mowglie/disk/G2TI/data/thickness_csv/'
+    dd = g2ti.thickness_csv_dir
     dd = dd + gdir.rgi_id.replace('RGI50', 'RGI60') + '_point_thickness.csv'
     dfp = pd.read_csv(dd, index_col=0)
     dfp = dfp[['lon', 'lat', 'thick']]
@@ -479,7 +480,58 @@ def optimize_distribute_thickness_single_glacier(gdir):
               'fac_slope':fac_slope,
               'fac_dis':fac_dis}
     out_mat = xr.DataArray(out_mat, dims=dims, coords=coords)
-    out_mat = out_mat.to_dataset(name='oggm')
+    out_mat = out_mat.to_dataset(name='thick')
     out_mat['ref_thick'] = (('points',), ref_thick)
     out_mat.to_netcdf(fs)
     return out, out_mat
+
+
+def merge_point_data(gdirs):
+
+    gdir = gdirs[0]
+
+    fpath = os.path.join(gdir.dir, 'point_thick.nc')
+    with xr.open_dataset(fpath) as ds:
+        fac_c = ds['fac_c'].values
+        fac_slope = ds['fac_slope'].values
+        fac_dis = ds['fac_dis'].values
+
+    exps = []
+    for zi, fc in enumerate(fac_c):
+        for yi, fs in enumerate(fac_slope):
+            for xi, fd in enumerate(fac_dis):
+                if (fs + fd) > 1:
+                    continue
+                exp = 'fac_c={:.3f};fac_slope={:.1f};fac_dis={:.1f}'.format(fc, fs, fd)
+                exps.append(exp)
+    n_exps = len(exps)
+
+    outf = os.path.join(cfg.PATHS['working_dir'], 'point_thick.nc')
+    rootgrp = netCDF4.Dataset(outf, 'w')
+
+    rootgrp.createDimension("points", None)
+    rootgrp.createDimension("experiments", n_exps)
+
+    experiments = rootgrp.createVariable("experiments", str, ('experiments',))
+    experiments[:] = np.array(exps)
+
+    ref_thick = rootgrp.createVariable("ref_thick", 'f8', ('points',))
+    thick = rootgrp.createVariable("thick", 'f4', ('points', 'experiments',))
+
+    i = 0
+    for gdir in gdirs:
+        fpath = os.path.join(gdir.dir, 'point_thick.nc')
+        with xr.open_dataset(fpath) as ds:
+            ref_thick[i:] = ds.ref_thick.values
+            e = 0
+            for zi, fc in enumerate(fac_c):
+                for yi, fs in enumerate(fac_slope):
+                    for xi, fd in enumerate(fac_dis):
+                        if (fs + fd) > 1:
+                            continue
+                        sel = ds.thick.sel(fac_c=fc, fac_slope=fs, fac_dis=fd)
+                        thick[i:, e] = sel.values
+                        e += 1
+            i += len(ds.ref_thick.values)
+
+    rootgrp.close()

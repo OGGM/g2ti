@@ -10,21 +10,24 @@ from oggm.utils import get_demo_file
 from oggm.core import gis
 
 import g2ti
+from g2ti import tasks as g2task
 
+do_plot = False
 
 class TestG2TI(unittest.TestCase):
 
     # Test case for a tidewater glacier
 
     def setUp(self):
-
         # test directory
         self.testdir = os.path.join(get_test_dir(), 'tmp_g2ti')
         if not os.path.exists(self.testdir):
             os.makedirs(self.testdir)
         self.clean_dir()
+        cfg.PATHS['working_dir'] = self.testdir
 
-        self.idir = '/home/mowglie/disk/G2TI/data/geometry/RGI60-11/RGI60-11.00887'
+        self.idir = os.path.join(g2ti.geometry_dir, 'RGI60-11',
+                                 'RGI60-11.00887')
 
         # Init
         cfg.initialize()
@@ -44,19 +47,15 @@ class TestG2TI(unittest.TestCase):
         os.makedirs(self.testdir)
 
     def test_domain(self):
-
-
-        gdir = g2ti.define_g2ti_glacier(self.idir, base_dir=self.testdir)
-
-        g2ti.g2ti_masks(gdir)
+        gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
+        g2task.g2ti_masks(gdir)
 
     def test_g2ti_data(self):
+        gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
 
-        gdir = g2ti.define_g2ti_glacier(self.idir, base_dir=self.testdir)
+        g2task.g2ti_masks(gdir)
 
-        g2ti.g2ti_masks(gdir)
-
-        i, j, _, _, thick = g2ti.get_ref_gtd_data(gdir)
+        i, j, _, _, thick = g2task.get_ref_gtd_data(gdir)
 
         ds = xr.open_dataset(gdir.get_filepath('gridded_data'))
 
@@ -64,41 +63,54 @@ class TestG2TI(unittest.TestCase):
         assert np.all(is_mask)
 
     def test_optim(self):
+        gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
 
-        gdir = g2ti.define_g2ti_glacier(self.idir, base_dir=self.testdir)
+        g2task.g2ti_masks(gdir)
+        out, ds = g2task.optimize_distribute_thickness_single_glacier(gdir)
 
-        g2ti.g2ti_masks(gdir)
-        out, ds = g2ti.optimize_distribute_thickness_single_glacier(gdir)
-
-        np.testing.assert_allclose(out.bias.abs().min(), 0, atol=0.05)
+        np.testing.assert_allclose(out.bias.abs().min(), 0, atol=0.5)
 
         out_s = out.loc[out['bias'].abs() < 5]
         out_s = out_s.loc[out_s.idxmin()['mad']]
 
-        bias = ds['oggm'] - ds['ref_thick']
+        bias = ds['thick'] - ds['ref_thick']
         mbias = np.abs(bias.mean(dim='points'))
         mbias = mbias.min(dim=['fac_dis', 'fac_slope'])
         assert mbias.min() < 1
 
-    def test_distribute(self):
+        g2task.merge_point_data([gdir, gdir, gdir])
+        outf = os.path.join(cfg.PATHS['working_dir'], 'point_thick.nc')
+        ds = xr.open_dataset(outf)
+        print(ds)
 
-        gdir = g2ti.define_g2ti_glacier(self.idir, base_dir=self.testdir)
+        if do_plot:
+            import matplotlib.pyplot as plt
+            ds.ref_thick.plot();
+            plt.figure()
+            ds['experiments'].data = np.arange(len(ds['experiments']))
+            ds.thick.plot()
+            plt.show()
+
+
+    def test_distribute(self):
+        gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
 
         gis.glacier_masks(gdir)
-        g2ti.g2ti_masks(gdir)
-        out = g2ti.distribute_thickness_vas(gdir, vas_c=0.034,
-                                            dis_factor=0.2, topo_factor=0.2)
+        g2task.g2ti_masks(gdir)
+        out = g2task.distribute_thickness_vas(gdir, vas_c=0.034,
+                                              dis_factor=0.2, topo_factor=0.2)
 
         ref = out * np.NaN
 
-        i, j, _, _, thick = g2ti.get_ref_gtd_data(gdir)
+        i, j, _, _, thick = g2task.get_ref_gtd_data(gdir)
         ref[j, i] = thick
 
         out = xr.DataArray(out)
         ref = xr.DataArray(ref)
 
-        import matplotlib.pyplot as plt
-        out.plot();
-        plt.figure()
-        ref.plot();
-        plt.show()
+        if do_plot:
+            import matplotlib.pyplot as plt
+            out.plot();
+            plt.figure()
+            ref.plot();
+            plt.show()
