@@ -8,11 +8,14 @@ import oggm.cfg as cfg
 from oggm.tests.funcs import get_test_dir
 from oggm.utils import get_demo_file
 from oggm.core import gis
+import salem
 
 import g2ti
 from g2ti import tasks as g2task
+from g2ti import plots
 
 do_plot = False
+
 
 class TestG2TI(unittest.TestCase):
 
@@ -24,13 +27,13 @@ class TestG2TI(unittest.TestCase):
         if not os.path.exists(self.testdir):
             os.makedirs(self.testdir)
         self.clean_dir()
-        cfg.PATHS['working_dir'] = self.testdir
 
         self.idir = os.path.join(g2ti.geometry_dir, 'RGI60-11',
                                  'RGI60-11.00887')
 
         # Init
         cfg.initialize()
+        cfg.PATHS['working_dir'] = self.testdir
         cfg.set_intersects_db(get_demo_file('rgi_intersect_oetztal.shp'))
         gdf = cfg.PARAMS['intersects_gdf']
         gdf['RGIId_1'] = gdf['RGIId_1'].str.replace('RGI50', 'RGI60')
@@ -49,6 +52,10 @@ class TestG2TI(unittest.TestCase):
     def test_domain(self):
         gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
         g2task.g2ti_masks(gdir)
+        if do_plot:
+            plots.plot_domain_with_gtd(gdir)
+            import matplotlib.pyplot as plt
+            plt.show()
 
     def test_g2ti_data(self):
         gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
@@ -91,14 +98,14 @@ class TestG2TI(unittest.TestCase):
             ds.thick.plot()
             plt.show()
 
-
     def test_distribute(self):
         gdir = g2task.define_g2ti_glacier(self.idir, base_dir=self.testdir)
 
         gis.glacier_masks(gdir)
         g2task.g2ti_masks(gdir)
         out = g2task.distribute_thickness_vas(gdir, vas_c=0.034,
-                                              dis_factor=0.2, topo_factor=0.2)
+                                              dis_factor=0.2, topo_factor=0.2,
+                                              write_tiff=True)
 
         ref = out * np.NaN
 
@@ -107,10 +114,22 @@ class TestG2TI(unittest.TestCase):
 
         out = xr.DataArray(out)
         ref = xr.DataArray(ref)
+        ft = os.path.join(cfg.PATHS['working_dir'], 'final',
+                          'RGI60-{}'.format(gdir.rgi_region))
+        ft = os.path.join(ft, 'thickness_{}.tif'.format(gdir.rgi_id))
+        tif = xr.open_rasterio(ft)
+
+        dx2 = salem.GeoTiff(ft).grid.dx**2
+
+        np.testing.assert_allclose((tif * dx2).sum()*1e-9,
+                                   0.034*gdir.rgi_area_km2**1.375,
+                                   rtol=0.01)
 
         if do_plot:
             import matplotlib.pyplot as plt
             out.plot();
             plt.figure()
             ref.plot();
+            plt.figure()
+            tif.plot();
             plt.show()

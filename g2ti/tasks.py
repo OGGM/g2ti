@@ -37,6 +37,7 @@ def define_g2ti_glacier(path=None, base_dir=None):
         rid = rid.replace('5a', '60')
 
     ent['RGIId'] = rid
+    ent['Name'] = '' if ent['Name'][0] == 'None' else ent['Name']
     gdir = utils.GlacierDirectory(ent.iloc[0], base_dir=base_dir)
     ent.to_file(gdir.get_filepath('outlines'))
 
@@ -319,7 +320,8 @@ def distribute_thickness_vas(gdir,
                              slope_factor=None,
                              dis_factor=None,
                              topo_factor=None,
-                             input_filesuffix=''):
+                             input_filesuffix='',
+                             write_tiff=False):
     """Compute a thickness map of the glacier using the nearest centerlines.
 
     This is a rather cosmetic task, not relevant for OGGM but for ITMIX.
@@ -414,6 +416,18 @@ def distribute_thickness_vas(gdir,
         v.units = 'm'
         v.long_name = 'Local ice thickness'
         v[:] = thick
+
+    if write_tiff:
+        ft = os.path.join(cfg.PATHS['working_dir'], 'final',
+                          'RGI60-{}'.format(gdir.rgi_region))
+        utils.mkdir(ft)
+        ft = os.path.join(ft, 'thickness_{}.tif'.format(gdir.rgi_id))
+        with rasterio.open(gdir.get_filepath('dem')) as orig:
+            # Set up profile for writing output
+            profile = orig.profile
+
+        with rasterio.open(ft, 'w', **profile) as dest:
+            dest.write(thick.astype(np.float32), 1)
 
     return thick
 
