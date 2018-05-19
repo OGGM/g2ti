@@ -12,3 +12,4 @@ cp = ConfigObj(os.path.expanduser('~/.g2ti_paths'), file_error=True)
 geometry_dir = cp['geometry_dir']
 index_file = cp['index_file']
 thickness_csv_dir = cp['thickness_csv_dir']
+index_file_orig = cp['index_file_orig']
