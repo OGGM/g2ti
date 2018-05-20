@@ -79,65 +79,45 @@ execute_entity_task(tasks.apparent_mb, gdirs)
 
 # Inversion tasks
 execute_entity_task(tasks.prepare_for_inversion, gdirs)
+
+
 # We use the default parameters for this run
-execute_entity_task(tasks.volume_inversion, gdirs, glen_a=cfg.A, fs=0)
+factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+factors += [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 4, 5]
+factors += [6, 7, 8, 9, 10]
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    varname_suffix='_alt_0.5_smooth_d')
+smooth_rad = [None, 1, 3, 5, 10]
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=1,
-                    varname_suffix='_alt_0.5_smooth_1')
+dis_expos = [0.1, 0.25, 0.5, 1.]
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=5,
-                    varname_suffix='_alt_0.5_smooth_5')
+# We use the default parameters for this run
+factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+factors += [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 4, 5]
+factors += [6, 7, 8, 9, 10]
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=10,
-                    varname_suffix='_alt_0.5_smooth_10')
+smooth_rad = [None, 5, 10]
+dis_expos = [0.25, 0.5, 1.]
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    dis_from_border_exp=1.,
-                    varname_suffix='_alt_1.0_smooth_d')
+suffix = []
+for ga in factors:
+    execute_entity_task(tasks.volume_inversion, gdirs,
+                        glen_a=cfg.A * ga, fs=0)
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    dis_from_border_exp=0.1,
-                    varname_suffix='_alt_0.1_smooth_d')
+    for sr in smooth_rad:
+        _sr = 0 if sr is None else sr
+        suffix = 'A{:02.1f}_S{:02d}'.format(ga, _sr)
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    dis_from_border_exp=0.2,
-                    varname_suffix='_alt_0.2_smooth_d')
+        execute_entity_task(tasks.distribute_thickness_interp, gdirs,
+                            varname_suffix='_int_'+suffix)
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=5,
-                    dis_from_border_exp=1.,
-                    varname_suffix='_alt_1.0_smooth_5')
+        for de in dis_expos:
+            _sr = 0 if sr is None else sr
+            suffix = 'A{:02.1f}_S{:02d}_D{:1.2f}'.format(ga, _sr, de)
 
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=5,
-                    dis_from_border_exp=0.1,
-                    varname_suffix='_alt_0.1_smooth_5')
-
-execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                    smooth_radius=5,
-                    dis_from_border_exp=0.2,
-                    varname_suffix='_alt_0.2_smooth_5')
-
-execute_entity_task(tasks.distribute_thickness_interp, gdirs,
-                    varname_suffix='_int_smooth_d')
-
-execute_entity_task(tasks.distribute_thickness_interp, gdirs,
-                    smooth_radius=1,
-                    varname_suffix='_int_smooth_1')
-
-execute_entity_task(tasks.distribute_thickness_interp, gdirs,
-                    smooth_radius=5,
-                    varname_suffix='_int_smooth_5')
-
-execute_entity_task(tasks.distribute_thickness_interp, gdirs,
-                    smooth_radius=10,
-                    varname_suffix='_int_smooth_10')
+            execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
+                                smooth_radius=sr,
+                                dis_from_border_exp=de,
+                                varname_suffix='_alt_' + suffix)
 
 # Compile output
 log.info('Compiling output')
