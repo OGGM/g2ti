@@ -15,7 +15,7 @@ mkdir('cali3')
 for rid in dfexp.index:
     reg = 'RGI60-{}'.format(rid[6:8])
     fi = 'thickness_{}.tif'.format(rid)
-    f = os.path.join(reg, fi)
+    f = os.path.join('final', reg, fi)
 
     of = os.path.join('cali1', fi.replace('.tif', '_c1.tif'))
     shutil.copyfile(f, of)
