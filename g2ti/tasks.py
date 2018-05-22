@@ -549,3 +549,51 @@ def merge_point_data(gdirs):
             i += len(ds.ref_thick.values)
 
     rootgrp.close()
+
+
+@entity_task(log, writes=['gridded_data'])
+def oggm_to_g2ti(gdir, dirname='final'):
+    """From an oggm gdir to a g2ti tiff
+
+    Parameters
+    ----------
+    """
+
+    # Get the data
+    grids_file = gdir.get_filepath('gridded_data')
+    with netCDF4.Dataset(grids_file) as nc:
+        with warnings.catch_warnings():
+            # https://github.com/Unidata/netcdf4-python/issues/766
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            thick = nc.variables['distributed_thickness'][:]
+
+    dx = gdir.grid.dx
+    vol = np.nansum(thick * dx**2)
+
+    tpl_f = os.path.join(g2ti.geometry_dir, gdir.rgi_id[:8], gdir.rgi_id,
+                         'dem.tif')
+    dst = salem.GeoTiff(tpl_f)
+
+    thick[~np.isfinite(thick)] = 0.
+
+    dst_thick = dst.grid.map_gridded_data(thick, grid=gdir.grid,
+                                          interp='spline')
+    dst_thick[~np.isfinite(dst_thick)] = 0.
+
+    # Conserve volume
+    dx = dst.grid.dx
+    dst_thick *= vol / np.nansum(dst_thick * dx**2)
+    if not np.isclose(vol / np.nansum(dst_thick * dx**2), 1, atol=0.2):
+        raise RuntimeError('Something went wrong in reproj.')
+
+    with rasterio.open(tpl_f) as orig:
+        # Set up profile for writing output
+        profile = orig.profile
+
+    ft = os.path.join(cfg.PATHS['working_dir'], dirname,
+                      'RGI60-{}'.format(gdir.rgi_region))
+    utils.mkdir(ft)
+    ft = os.path.join(ft, 'thickness_{}.tif'.format(gdir.rgi_id))
+
+    with rasterio.open(ft, 'w', **profile) as dest:
+        dest.write(dst_thick.astype(np.float32).clip(0), 1)

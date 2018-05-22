@@ -9,6 +9,7 @@ from oggm.tests.funcs import get_test_dir
 from oggm.utils import get_demo_file
 from oggm.core import gis
 import salem
+import geopandas as gpd
 
 import g2ti
 from g2ti import tasks as g2task
@@ -132,4 +133,89 @@ class TestG2TI(unittest.TestCase):
             ref.plot();
             plt.figure()
             tif.plot();
+            plt.show()
+
+
+class TestOGGMtoTIFF(unittest.TestCase):
+
+    def setUp(self):
+
+        # test directory
+        self.testdir = os.path.join(get_test_dir(), 'tmp')
+        if not os.path.exists(self.testdir):
+            os.makedirs(self.testdir)
+        self.clean_dir()
+
+        # Init
+        cfg.initialize()
+        cfg.set_intersects_db(get_demo_file('rgi_intersect_oetztal.shp'))
+        cfg.PATHS['dem_file'] = get_demo_file('hef_srtm.tif')
+        cfg.PATHS['working_dir'] = self.testdir
+
+    def tearDown(self):
+        self.rm_dir()
+
+    def rm_dir(self):
+        shutil.rmtree(self.testdir)
+
+    def clean_dir(self):
+        shutil.rmtree(self.testdir)
+        os.makedirs(self.testdir)
+
+    def test_to_tiff(self):
+
+        from oggm import tasks
+        from oggm.workflow import execute_entity_task
+        from oggm import GlacierDirectory
+        hef_file = get_demo_file('Hintereisferner_RGI5.shp')
+        entity = gpd.read_file(hef_file).iloc[0]
+        gdir = GlacierDirectory(entity, base_dir=self.testdir)
+        gdir.rgi_id = gdir.rgi_id.replace('50-', '60-')
+        gis.define_glacier_region(gdir, entity=entity)
+        gdirs = [gdir]
+
+        # Preprocessing tasks
+        task_list = [
+            tasks.glacier_masks,
+            tasks.compute_centerlines,
+            tasks.initialize_flowlines,
+            tasks.catchment_area,
+            tasks.catchment_intersections,
+            tasks.catchment_width_geom,
+            tasks.catchment_width_correction,
+        ]
+        for task in task_list:
+            execute_entity_task(task, gdirs)
+
+        # Climate tasks -- only data IO and tstar interpolation!
+        execute_entity_task(tasks.process_cru_data, gdirs)
+        tasks.distribute_t_stars(gdirs)
+        execute_entity_task(tasks.apparent_mb, gdirs)
+
+        # Inversion tasks
+        execute_entity_task(tasks.prepare_for_inversion, gdirs)
+        execute_entity_task(tasks.volume_inversion, gdirs,
+                            glen_a=cfg.A*3,
+                            fs=0)
+        execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs)
+
+        g2task.oggm_to_g2ti(gdir)
+
+        ft = os.path.join(cfg.PATHS['working_dir'], 'final',
+                          'RGI60-{}'.format(gdir.rgi_region))
+        ft = os.path.join(ft, 'thickness_{}.tif'.format(gdir.rgi_id))
+
+        ds = xr.open_rasterio(ft)
+
+        tpl_f = os.path.join(g2ti.geometry_dir, gdir.rgi_id[:8], gdir.rgi_id,
+                             'mask.tif')
+        da = xr.open_rasterio(tpl_f)
+
+        np.testing.assert_allclose(ds.sum(), (da*ds).sum(), rtol=0.05)
+
+        if do_plot:
+            import matplotlib.pyplot as plt
+            ds.plot()
+            plt.figure()
+            da.plot()
             plt.show()

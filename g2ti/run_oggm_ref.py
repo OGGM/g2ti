@@ -1,5 +1,5 @@
 # Python imports
-from os import path
+import os
 import glob
 import oggm
 import pandas as pd
@@ -34,12 +34,10 @@ idir = g2ti.geometry_dir
 cfg.PATHS['working_dir'] = '/home/mowglie/disk/G2TI/oggm_ref_run'
 utils.mkdir(cfg.PATHS['working_dir'])
 
-fl = glob.glob('/home/mowglie/disk/G2TI/plots_visual_sel/*.png')
-sel_ids = [f.split('_')[-1].replace('.png', '') for f in fl if
-           ('-19' not in f) and ('-05' not in f)]
+df = pd.read_csv(g2ti.index_file, index_col=0)
+sel_ids = [rid for rid in df.index if ('-19.' not in rid) and ('-05.' not in rid)]
 
-# Tests only
-sel_ids = sel_ids[0:3]
+sel_ids = sel_ids[:3]
 
 rgidf = utils.get_rgi_glacier_entities(sel_ids, version=version)
 
@@ -49,7 +47,6 @@ cfg.set_intersects_db(db)
 
 # Sort for more efficient parallel computing
 rgidf = rgidf.sort_values('Area', ascending=False)
-
 
 log.info('Starting OGGM run')
 log.info('Number of glaciers: {}'.format(len(rgidf)))
@@ -80,44 +77,23 @@ execute_entity_task(tasks.apparent_mb, gdirs)
 # Inversion tasks
 execute_entity_task(tasks.prepare_for_inversion, gdirs)
 
-
 # We use the default parameters for this run
-factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-factors += [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 4, 5]
-factors += [6, 7, 8, 9, 10]
+a_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+a_factors += [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 4, 5]
+a_factors += [6, 7, 8, 9, 10]
 
-smooth_rad = [None, 1, 3, 5, 10]
-
-dis_expos = [0.1, 0.25, 0.5, 1.]
-
-# We use the default parameters for this run
-factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-factors += [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 4, 5]
-factors += [6, 7, 8, 9, 10]
-
-smooth_rad = [None, 5, 10]
-dis_expos = [0.25, 0.5, 1.]
+s_factors = [0., 0.2, 0.5]
 
 suffix = []
-for ga in factors:
-    execute_entity_task(tasks.volume_inversion, gdirs,
-                        glen_a=cfg.A * ga, fs=0)
+for fa in a_factors:
+    for fs in s_factors:
+        execute_entity_task(tasks.volume_inversion, gdirs,
+                            glen_a=cfg.A * fa, fs=cfg.FS * fs)
 
-    for sr in smooth_rad:
-        _sr = 0 if sr is None else sr
-        suffix = 'A{:02.1f}_S{:02d}'.format(ga, _sr)
+        suffix = '_A{:04.1f}_S{:03.1}'.format(fa, fs)
 
-        execute_entity_task(tasks.distribute_thickness_interp, gdirs,
-                            varname_suffix='_int_'+suffix)
-
-        for de in dis_expos:
-            _sr = 0 if sr is None else sr
-            suffix = 'A{:02.1f}_S{:02d}_D{:1.2f}'.format(ga, _sr, de)
-
-            execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
-                                smooth_radius=sr,
-                                dis_from_border_exp=de,
-                                varname_suffix='_alt_' + suffix)
+        execute_entity_task(tasks.distribute_thickness_per_altitude, gdirs,
+                            varname_suffix=suffix)
 
 # Compile output
 log.info('Compiling output')
